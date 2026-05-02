@@ -1,4 +1,5 @@
 import os 
+from config.coins import COINS
 
 POSTGRES_CONFIG = {
     'host': os.getenv('DB_HOST', '127.0.0.1'),
@@ -11,7 +12,7 @@ POSTGRES_CONFIG = {
 S3_BUCKET_NAME='jenilkhunt-etl-storage'
 PROCESSED_KEY='crypto_data/crypto_data.csv'
 
-COINS = ['bitcoin', 'ethereum', 'ripple']
+COINS = COINS
 CURRENCY = 'usd'
 
 PROCESSED_DATA_DIR='data/processed/crypto_prices.csv'
