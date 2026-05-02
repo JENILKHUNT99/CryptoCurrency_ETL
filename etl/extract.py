@@ -11,7 +11,10 @@ def extract_crypto_data():
     try:
         params = {
             'vs_currency': CURRENCY,
-            'ids': ','.join(COINS)
+            'ids': ','.join(COINS),
+            'per_page': 100,
+            'page': 1,
+            'sparkline': 'false'
         }
         response = requests.get(URL, params=params)
 
