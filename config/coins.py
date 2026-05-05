@@ -21,6 +21,9 @@ COINS = [
     "loom-network", "gifto", "bluzelle", "via", "pundi-x"
 ]
 
+# Data enrichment
+# Add specific categories for each coin to enable better analysis and insights
+
 COIN_CATEGORIES = {
     # Currency / Store of Value
     'bitcoin': 'Currency',
