@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS dim_currency (
 CREATE TABLE IF NOT EXISTS fact_crypto_prices (
     price_id SERIAL PRIMARY KEY,
     coin_id INTEGER NOT NULL,
-    date_id INTEGER NOT NULL,
+    etl_run_date_id INTEGER NOT NULL,
+    api_updated_date_id INTEGER NOT NULL,
     currency_id INTEGER NOT NULL,
     price NUMERIC(20, 10) NOT NULL,
     market_cap NUMERIC(20, 2) NOT NULL,
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS fact_crypto_prices (
     low_24h NUMERIC(20, 10) NOT NULL,
     price_change_percent NUMERIC(10, 2) NOT NULL,
     FOREIGN KEY (coin_id) REFERENCES dim_coin(coin_id),
-    FOREIGN KEY (date_id) REFERENCES dim_date(date_id),
+    FOREIGN KEY (etl_run_date_id) REFERENCES dim_date(date_id),
+    FOREIGN KEY (api_updated_date_id) REFERENCES dim_date(date_id),
     FOREIGN KEY (currency_id) REFERENCES dim_currency(currency_id)
 );
