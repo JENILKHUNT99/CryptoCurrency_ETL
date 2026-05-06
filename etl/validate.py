@@ -5,7 +5,7 @@ logger = get_logger(__name__)
 REQUIRED_FIELDS = [
     'id', 'symbol', 'name',
     'current_price', 'market_cap', 'total_volume',
-    'high_24h', 'low_24h', 'price_change_percentage_24h'
+    'high_24h', 'low_24h', 'price_change_percentage_24h','last_updated'
 ]
 
 NUMERIC_FIELDS = [
