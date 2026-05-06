@@ -160,3 +160,24 @@ COIN_CATEGORIES = {
     'injective-protocol': 'Utility',
     'maker': 'Utility',
 }
+
+CATEGORY_ID = {
+    'Currency': 1,
+    'Smart Contract Platform': 2,
+    'Payment Protocol': 3,
+    'Stablecoin': 4,
+    'DeFi': 5,
+    'Exchange Token': 6,
+    'Wrapped Token': 7,
+    'Layer 2': 8,
+    'Oracle': 9,
+    'Metaverse': 10,
+    'Storage': 11,
+    'AI': 12,
+    'Privacy': 13,
+    'Enterprise': 14,
+    'Meme': 15,
+    'Utility': 16,
+    'IoT': 17,
+    'Other': 99
+}
