@@ -18,7 +18,8 @@ COINS = [
     "ocean-protocol", "band-protocol", "fetch-ai", "numeraire", "kyber-network-crystal",
     "republic-protocol", "civic", "metal", "power-ledger", "airswap",
     "celer-network", "origin-protocol", "district0x", "cortex", "adex",
-    "loom-network", "gifto", "bluzelle", "via", "pundi-x"
+    "loom-network", "gifto", "bluzelle", "via", "pundi-x",
+    "nano"
 ]
 
 # Data enrichment
@@ -124,9 +125,6 @@ COIN_CATEGORIES = {
     'render-token': 'AI',
     'cortex': 'AI',
 
-    # Privacy
-    'zcash': 'Privacy',
-
     # IoT / Enterprise
     'vechain': 'Enterprise',
     'iota': 'IoT',
@@ -158,7 +156,6 @@ COIN_CATEGORIES = {
     'zilliqa': 'Utility',
     'quant-network': 'Utility',
     'injective-protocol': 'Utility',
-    'maker': 'Utility',
 }
 
 CATEGORY_ID = {

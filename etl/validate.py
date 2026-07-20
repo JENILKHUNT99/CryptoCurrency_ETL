@@ -1,3 +1,6 @@
+import math
+from datetime import datetime
+
 from etl.logger import get_logger
 
 logger = get_logger(__name__)
@@ -21,39 +24,62 @@ def validate_data(data):
         return []
 
     valid_data = []
+    seen_ids = set()
 
     for coin in data:
-        try:
-            coin_id = coin.get("id", "unknown")
+        if not isinstance(coin, dict):
+            logger.warning("Skipping non-object record from source")
+            continue
+        coin_id = coin.get("id", "unknown")
 
-            # 1. Required field check
-            if not all(field in coin for field in REQUIRED_FIELDS):
-                logger.warning(f"Missing fields in coin: {coin_id}")
-                continue
-
-            # 2. Null check
-            if any(coin[field] is None for field in REQUIRED_FIELDS):
-                logger.warning(f"Null values in coin: {coin_id}")
-                continue
-
-            # 3. Type + numeric validation
-            for field in NUMERIC_FIELDS:
-                if not isinstance(coin[field], (int, float)):
-                    logger.warning(f"Invalid type for {field} in {coin_id}")
-                    raise ValueError(f"Invalid value for {field}")
-
-                # Business rule
-                if field != "price_change_percentage_24h" and coin[field] <= 0:
-                    logger.warning(f"Invalid value for {field} in {coin_id}")
-                    raise ValueError(f"Invalid value for {field}")
-
-            # Passed all checks ✅
-            valid_data.append(coin)
-
-        except Exception as e:
-            logger.error(f"Validation failed for coin: {coin.get('id', 'unknown')}: {e}")
+        if not all(field in coin for field in REQUIRED_FIELDS):
+            logger.warning(f"Missing fields in coin: {coin_id}")
             continue
 
-    logger.info(f"Valid records: {len(valid_data)} / {len(data)}")
+        if any(coin[field] is None for field in REQUIRED_FIELDS):
+            logger.warning(f"Null values in coin: {coin_id}")
+            continue
 
+        if not all(isinstance(coin[field], str) and coin[field].strip() for field in ("id", "symbol", "name")):
+            logger.warning(f"Invalid identifier fields in coin: {coin_id}")
+            continue
+
+        if coin_id in seen_ids:
+            logger.warning(f"Duplicate coin ID in source response: {coin_id}")
+            continue
+
+        type_valid = True
+        for field in NUMERIC_FIELDS:
+            if isinstance(coin[field], bool) or not isinstance(coin[field], (int, float)):
+                logger.warning(f"Invalid type for {field} in {coin_id}")
+                type_valid = False
+                break
+
+            if not math.isfinite(coin[field]):
+                logger.warning(f"Non-finite value for {field} in {coin_id}")
+                type_valid = False
+                break
+
+            if field != "price_change_percentage_24h" and coin[field] <= 0:
+                logger.warning(f"Invalid value for {field} in {coin_id}")
+                type_valid = False
+                break
+
+        if not type_valid:
+            continue
+
+        try:
+            datetime.fromisoformat(coin["last_updated"].replace("Z", "+00:00"))
+        except (AttributeError, ValueError):
+            logger.warning(f"Invalid last_updated timestamp in {coin_id}")
+            continue
+
+        if coin["high_24h"] < coin["low_24h"]:
+            logger.warning(f"24-hour high is lower than low in {coin_id}")
+            continue
+
+        valid_data.append(coin)
+        seen_ids.add(coin_id)
+
+    logger.info(f"Valid records: {len(valid_data)} / {len(data)}")
     return valid_data
