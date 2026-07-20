@@ -1,10 +1,10 @@
-import pandas as pd # type: ignore
+import pandas as pd  # type: ignore
 from etl.logger import get_logger
 from config.coins import COIN_CATEGORIES, CATEGORY_ID
 
 logger = get_logger(__name__)
 
-def transform_data(data, run_date=None):
+def transform_data(data, run_at=None, run_id=None, run_date=None):
     logger.info("Transforming data...")
 
     df = pd.DataFrame(data)
@@ -44,12 +44,18 @@ def transform_data(data, run_date=None):
 
 
     # ─── dim_date ───  
-    etl_run_dt = pd.to_datetime(run_date) if run_date else pd.Timestamp.now(tz="UTC")
+    run_at = run_at or run_date
+    run_id = run_id or "adhoc"
+    etl_run_dt = pd.to_datetime(run_at, utc=True) if run_at else pd.Timestamp.now(tz="UTC")
+    etl_run_hour = etl_run_dt.floor("h")
     
     # Collect all unique dates — ETL run date + all API last_updated dates
-    api_dt = pd.to_datetime(df["last_updated"],errors="coerce").dt.round("h")
+    observed_at = pd.to_datetime(df["last_updated"], errors="coerce", utc=True)
+    if observed_at.isna().any():
+        raise ValueError("Validation allowed an invalid last_updated timestamp")
+    api_dt = observed_at.dt.floor("h")
     all_dates = pd.concat([
-        pd.Series([etl_run_dt.round("h")]),
+        pd.Series([etl_run_hour]),
         api_dt
     ]).dropna().drop_duplicates().reset_index(drop=True)
 
@@ -80,22 +86,26 @@ def transform_data(data, run_date=None):
 
 
     # ─── fact_crypto_prices ───
-    api_date_id = api_dt.dt.strftime("%Y%m%d%H").fillna(0000000000).astype(int)
-    etl_date_id = int(etl_run_dt.round("h").strftime("%Y%m%d%H"))
+    api_date_id = api_dt.dt.strftime("%Y%m%d%H").astype(int)
+    etl_date_id = int(etl_run_hour.strftime("%Y%m%d%H"))
+    observed_key = observed_at.dt.strftime("%Y%m%dT%H%M%S%fZ")
 
     fact_crypto_prices = pd.DataFrame({
-        "price_id": df["id"].astype(str).fillna("unknown") + "_" + api_dt.dt.strftime("%Y%m%d%H").fillna("0000000000"), 
+        "price_id": df["id"].astype(str) + "_" + observed_key,
         "coin_id": df["id"],
         "etl_run_date_id": etl_date_id,
         "api_updated_date_id": api_date_id,
         "currency_id": 1,  # USD
+        "observed_at": observed_at,
+        "ingested_at": etl_run_dt,
+        "pipeline_run_id": run_id,
         "price": df["current_price"],
         "market_cap": df["market_cap"],
         "volume": df["total_volume"],
         "high_24h": df["high_24h"],
         "low_24h": df["low_24h"],
         "price_change_percent": df["price_change_percentage_24h"]
-    }).dropna(subset=["coin_id", "price"])
+    }).dropna(subset=["coin_id", "price", "pipeline_run_id"])
         
     
     logger.info(f"Transform complete! Coins: {len(dim_coin)}, Categories: {len(dim_category)}, Dates: {len(dim_date)}")
