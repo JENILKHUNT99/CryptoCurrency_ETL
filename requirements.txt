@@ -1,5 +1,5 @@
-pandas
-boto3
-python-dotenv
-psycopg2-binary
-requests
+boto3==1.35.76
+pandas==2.2.3
+psycopg2-binary==2.9.10
+python-dotenv==1.0.1
+requests==2.32.3

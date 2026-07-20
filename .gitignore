@@ -1,5 +1,10 @@
 .env
+.env.*
+!.env.example
 data/
 __pycache__/
 *.log
 *.pyc
+.pytest_cache/
+.coverage
+htmlcov/
