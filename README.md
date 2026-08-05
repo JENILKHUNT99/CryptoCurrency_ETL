@@ -1,95 +1,162 @@
 # Crypto Market ETL
 
-A containerized Python ETL pipeline that captures cryptocurrency market snapshots from the CoinGecko API, validates and enriches the data, stores replayable files, and loads an analytics-ready PostgreSQL star schema.
-
-## Why this project exists
-
-The project demonstrates the concerns that make a data pipeline useful beyond a one-off script: source resilience, data quality, idempotent loading, historical retention, schema evolution, lineage, automated tests, and reproducible local deployment.
+A containerized batch ETL pipeline that extracts cryptocurrency market data from the CoinGecko API, validates and transforms the records, stores raw and curated snapshots, and loads a PostgreSQL star schema. Snapshot files can optionally be uploaded to Amazon S3.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    API[CoinGecko API] --> EX[Extract with timeout and retries]
-    EX --> RAW[Immutable raw JSON snapshots]
-    EX --> V[Data-quality validation]
-    V --> T[UTC transformation and enrichment]
-    T --> CURATED[Immutable curated CSV snapshots]
-    T --> DB[(PostgreSQL star schema)]
-    DB --> AUDIT[Pipeline run audit table]
-    RAW -. optional upload .-> S3[(Amazon S3)]
-    CURATED -. optional upload .-> S3
+    API[CoinGecko API] --> EXTRACT[Extract]
+    EXTRACT --> RAW[Raw JSON]
+    RAW --> VALIDATE[Validate]
+    VALIDATE --> TRANSFORM[Transform]
+    TRANSFORM --> CURATED[Curated CSV]
+    TRANSFORM --> DB[(PostgreSQL)]
+    RAW -. optional .-> S3[(Amazon S3)]
+    CURATED -. optional .-> S3
+    DB --> AUDIT[Pipeline Audit]
 ```
+
+## Pipeline flow
+
+1. `main.py` creates a unique pipeline run ID and UTC start time.
+2. Pending SQL migrations are applied when PostgreSQL loading is enabled.
+3. A `running` record is created in the pipeline audit table.
+4. Market data is requested from CoinGecko.
+5. The original API response is saved as a raw JSON snapshot.
+6. Invalid records are rejected using the configured data-quality rules.
+7. Valid records are transformed into dimension and fact DataFrames.
+8. The transformed fact data is saved as a curated CSV snapshot.
+9. Dimensions and facts are upserted into PostgreSQL in one transaction.
+10. The audit record is updated to `succeeded` or `failed`.
 
 ## Data model
 
-The fact-table grain is **one coin, currency, and source observation timestamp**. `price_id` is deterministic from the CoinGecko coin ID and the exact UTC `observed_at` value, making reruns idempotent without overwriting later observations.
+```mermaid
+flowchart LR
+    CATEGORY[dim_category] --> COIN[dim_coin]
+    COIN --> FACT[fact_crypto_prices]
+    CURRENCY[dim_currency] --> FACT
+    DATE[dim_date] --> FACT
+    RUNS[pipeline_runs] --> FACT
+```
 
 | Table | Purpose |
 | --- | --- |
-| `fact_crypto_prices` | Market price, market cap, volume, 24-hour high/low, source observation time, ingestion time, and pipeline run ID |
-| `dim_coin` | CoinGecko coin ID, name, symbol, and curated category |
-| `dim_category` | Analysis category such as DeFi, Layer 2, or Stablecoin |
-| `dim_date` | Hourly UTC calendar dimension used by both source and ingestion timestamps |
-| `dim_currency` | Reporting currency dimension |
-| `pipeline_runs` | Execution status, counts, timestamps, and error message for lineage and operational monitoring |
+| `dim_category` | Cryptocurrency analysis categories |
+| `dim_coin` | Coin ID, name, symbol, and category |
+| `dim_currency` | Configured reporting currency |
+| `dim_date` | Hourly UTC calendar values |
+| `fact_crypto_prices` | Price, market cap, volume, 24-hour values, and timestamps |
+| `pipeline_runs` | Run status, counts, timestamps, and errors |
 
-Versioned migrations in `migrations/` manage schema creation and upgrades. They are applied before each database load.
+The fact-table grain is one coin, in one reporting currency, at one exact source observation timestamp. The deterministic fact key is:
 
-## Quick start
+```text
+<coin-id>_<currency-code>_<observed-at-utc>
+```
 
-1. Copy `.env.example` to `.env` and replace `DB_PASSWORD` with a strong local password.
-2. Start the database and run the pipeline:
-   ```bash
-   docker compose up --build
-   ```
-3. Run a deterministic local-only execution without PostgreSQL or S3:
-   ```bash
-   python main.py --run-at 2025-07-20T10:00:00Z --skip-postgres --skip-s3
-   ```
-4. Stop the local stack when finished:
-   ```bash
-   docker compose down
-   ```
+For example, `bitcoin_usd_20250720T100000000000Z`. Reprocessing the same observation generates the same key, so PostgreSQL updates the existing row instead of inserting a duplicate.
 
-Local snapshots are intentionally partitioned by run date and hour:
+## Data storage
+
+Snapshots are partitioned by the UTC pipeline start date and hour:
 
 ```text
 data/raw/run_date=YYYY-MM-DD/run_hour=HH/<pipeline-run-id>.json
 data/curated/run_date=YYYY-MM-DD/run_hour=HH/<pipeline-run-id>.csv
 ```
 
-## S3 configuration
-
-S3 is disabled by default so a local run does not require cloud credentials. To enable it, set `S3_ENABLED=true`, set `S3_BUCKET_NAME`, and provide AWS credentials through the normal AWS credential chain, such as a named profile, IAM role, or CI secret. Never commit AWS access keys or `.env`.
+When S3 is enabled, the same partition structure is stored under `raw/` and `curated/` object prefixes.
 
 ## Data-quality rules
 
-Records are rejected when they have missing fields, null values, invalid identifiers, duplicate coin IDs, non-finite numbers, invalid timestamps, non-positive market measures, or a 24-hour high below the low. Set `MIN_VALID_RECORDS` to enforce a source completeness threshold in production.
+Records are rejected for missing or null fields, invalid identifiers, duplicate coin IDs, incorrect or non-finite numeric values, non-positive market measures, invalid timestamps, or a 24-hour high below the low. `MIN_VALID_RECORDS` defines the minimum valid record count required to continue.
 
-## Development
+## Repository structure
 
-```bash
-pip install -r requirements-dev.txt
-pytest -q
-ruff check .
+```text
+Crypto_ETL/
+├── .github/workflows/ci.yml    # Continuous integration
+├── config/                     # Environment and coin configuration
+├── docs/                       # Example analytical SQL
+├── etl/                        # Extract, validate, transform, load, and migrations
+├── init/                       # PostgreSQL initialization
+├── migrations/                 # Versioned warehouse migrations
+├── tests/                      # Automated tests and fixtures
+├── docker-compose.yml          # Application and PostgreSQL services
+├── Dockerfile                  # Python application image
+├── main.py                     # Pipeline entry point
+├── requirements.txt            # Runtime dependencies
+└── requirements-dev.txt        # Development dependencies
 ```
 
-GitHub Actions runs linting and tests on pushes to `main` and pull requests.
+## Configuration
+
+Copy `.env.example` to `.env` and set a strong database password.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DB_USER` | `postgres` | PostgreSQL user |
+| `DB_PASSWORD` | Required by Docker Compose | PostgreSQL password |
+| `DB_NAME` | `crypto_etl` | PostgreSQL database |
+| `POSTGRES_PORT` | `5432` | PostgreSQL host port |
+| `CURRENCY` | `usd` | CoinGecko reporting currency |
+| `MIN_VALID_RECORDS` | `1` | Minimum accepted record count |
+| `S3_ENABLED` | `false` | Enables S3 uploads |
+| `S3_BUCKET_NAME` | Empty | Destination S3 bucket |
+| `AWS_DEFAULT_REGION` | `ap-south-1` | AWS region |
+| `LOG_LEVEL` | `INFO` | Application logging level |
+
+`.env`, generated data, log files, and AWS credentials must not be committed.
+
+## Running the project
+
+Create the environment file and set `DB_PASSWORD`:
+
+```bash
+cp .env.example .env
+```
+
+Run the application with PostgreSQL:
+
+```bash
+docker compose up --build
+```
+
+For a direct Python run, install dependencies:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+Run locally without PostgreSQL or S3:
+
+```bash
+python main.py --skip-postgres --skip-s3
+```
+
+Use `--run-at` for a reproducible, timezone-aware timestamp:
+
+```bash
+python main.py --run-at 2025-07-20T10:00:00Z --skip-postgres --skip-s3
+```
+
+Stop Docker services with `docker compose down`.
+
+## Testing
+
+```bash
+python -m pytest -q
+python -m ruff check .
+```
+
+GitHub Actions runs linting and tests on pushes to `main` and on pull requests.
 
 ## Example analysis
 
-See [`docs/analysis_queries.sql`](docs/analysis_queries.sql) for category market-cap analysis, largest daily moves, and pipeline reliability reporting.
+[`docs/analysis_queries.sql`](docs/analysis_queries.sql) contains examples for:
 
-## Interview talking points
-
-- I modeled the warehouse at an explicit fact grain and retained both source observation and ingestion timestamps.
-- Raw source payloads are preserved independently from the curated model, enabling replay when business logic changes.
-- A deterministic fact key makes warehouse loads idempotent while preserving time-series history.
-- Database loads use bulk upserts in one transaction, so failed batches do not leave partial dimension/fact writes.
-- Every run is auditable through `pipeline_runs`, including counts and failure messages.
-- Schema evolution is versioned through SQL migrations rather than relying on container initialization alone.
-
-## Next production steps
-
-For a deployed environment, run this command in an orchestrator such as Prefect, Airflow, or Dagster, emit metrics to a monitoring platform, write curated data as Parquet for large-scale lake analytics, and use IAM roles plus a managed secrets service.
+- End-of-day market cap and volume by category
+- Largest 24-hour price movements in the latest successful batch
+- Pipeline reliability and rejected-record trends

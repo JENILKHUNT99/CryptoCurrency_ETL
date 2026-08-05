@@ -30,8 +30,9 @@ def test_extract_success(mock_get):
     assert result[0]["id"] == "bitcoin"
 
 
+@patch("etl.extract.time.sleep")
 @patch("etl.extract.requests.get")
-def test_extract_http_error(mock_get):
+def test_extract_http_error(mock_get, mock_sleep):
     mock_resp = MagicMock()
     mock_resp.status_code = 500
     mock_resp.text = "Internal Server Error"
@@ -39,15 +40,20 @@ def test_extract_http_error(mock_get):
 
     result = extract_crypto_data()
     assert result == []
+    assert mock_get.call_count == 3
+    assert mock_sleep.call_count == 2
 
 
+@patch("etl.extract.time.sleep")
 @patch("etl.extract.requests.get")
-def test_extract_connection_error(mock_get):
+def test_extract_connection_error(mock_get, mock_sleep):
     import requests
     mock_get.side_effect = requests.exceptions.ConnectionError("No connection")
 
     result = extract_crypto_data()
     assert result == []
+    assert mock_get.call_count == 3
+    assert mock_sleep.call_count == 2
 
 
 @patch("etl.extract.time.sleep")

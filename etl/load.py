@@ -85,32 +85,50 @@ def record_pipeline_run(run_id, started_at, status, extracted_count=0, valid_cou
         conn.close()
 
 
-def save_snapshots(raw_data, fact_crypto_prices, run_id, run_at, upload_to_s3=True):
-    """Persist immutable raw and curated snapshots locally and optionally to S3."""
-    run_partition = run_at.strftime("run_date=%Y-%m-%d/run_hour=%H")
-    raw_path = Path(RAW_DATA_DIR) / run_partition / f"{run_id}.json"
-    curated_path = Path(CURATED_DATA_DIR) / run_partition / f"{run_id}.csv"
-    raw_path.parent.mkdir(parents=True, exist_ok=True)
-    curated_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with raw_path.open("w", encoding="utf-8") as raw_file:
-        json.dump(raw_data, raw_file, ensure_ascii=False)
-    fact_crypto_prices.to_csv(curated_path, index=False)
-    logger.info(f"Saved snapshots to {raw_path} and {curated_path}")
-
-    if not upload_to_s3:
-        return raw_path, curated_path
+def _upload_snapshot(local_path, object_key):
     if not S3_BUCKET_NAME:
         raise ValueError("S3_BUCKET_NAME must be set when S3 uploads are enabled")
 
-    raw_key = raw_path.as_posix().replace("data/", "", 1)
-    curated_key = curated_path.as_posix().replace("data/", "", 1)
     try:
         s3 = boto3.client("s3", region_name=AWS_REGION)
-        s3.upload_file(str(raw_path), S3_BUCKET_NAME, raw_key)
-        s3.upload_file(str(curated_path), S3_BUCKET_NAME, curated_key)
-        logger.info(f"Uploaded immutable snapshots to s3://{S3_BUCKET_NAME}/{run_partition}/")
+        s3.upload_file(str(local_path), S3_BUCKET_NAME, object_key)
+        logger.info(f"Uploaded snapshot to s3://{S3_BUCKET_NAME}/{object_key}")
     except Exception:
         logger.exception("S3 upload failed")
         raise
+
+
+def save_raw_snapshot(raw_data, run_id, run_at, upload_to_s3=True):
+    """Persist the unmodified source response before validation or transformation."""
+    run_partition = run_at.strftime("run_date=%Y-%m-%d/run_hour=%H")
+    raw_path = Path(RAW_DATA_DIR) / run_partition / f"{run_id}.json"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with raw_path.open("w", encoding="utf-8") as raw_file:
+        json.dump(raw_data, raw_file, ensure_ascii=False)
+    logger.info(f"Saved raw snapshot to {raw_path}")
+
+    if upload_to_s3:
+        _upload_snapshot(raw_path, f"raw/{run_partition}/{run_id}.json")
+    return raw_path
+
+
+def save_curated_snapshot(fact_crypto_prices, run_id, run_at, upload_to_s3=True):
+    """Persist the analytics-ready fact snapshot after successful transformation."""
+    run_partition = run_at.strftime("run_date=%Y-%m-%d/run_hour=%H")
+    curated_path = Path(CURATED_DATA_DIR) / run_partition / f"{run_id}.csv"
+    curated_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fact_crypto_prices.to_csv(curated_path, index=False)
+    logger.info(f"Saved curated snapshot to {curated_path}")
+
+    if upload_to_s3:
+        _upload_snapshot(curated_path, f"curated/{run_partition}/{run_id}.csv")
+    return curated_path
+
+
+def save_snapshots(raw_data, fact_crypto_prices, run_id, run_at, upload_to_s3=True):
+    """Persist both snapshots; retained as a convenience for callers and tests."""
+    raw_path = save_raw_snapshot(raw_data, run_id, run_at, upload_to_s3)
+    curated_path = save_curated_snapshot(fact_crypto_prices, run_id, run_at, upload_to_s3)
     return raw_path, curated_path

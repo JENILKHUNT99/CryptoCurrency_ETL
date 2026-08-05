@@ -23,7 +23,9 @@ AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-south-1")
 MIN_VALID_RECORDS = int(os.getenv("MIN_VALID_RECORDS", "1"))
 
 COINS = COINS
-CURRENCY = os.getenv("CURRENCY", "usd")
+CURRENCY = os.getenv("CURRENCY", "usd").strip().lower()
+if not CURRENCY or len(CURRENCY) > 10 or not CURRENCY.replace("-", "").isalnum():
+    raise ValueError("CURRENCY must be a non-empty alphanumeric code of at most 10 characters")
 
 RAW_DATA_DIR = os.getenv("RAW_DATA_DIR", "data/raw")
 CURATED_DATA_DIR = os.getenv("CURATED_DATA_DIR", "data/curated")

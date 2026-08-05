@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 
 from config.config import MIN_VALID_RECORDS, S3_ENABLED
 from etl.extract import extract_crypto_data
-from etl.load import load_to_postgres, record_pipeline_run, save_snapshots
+from etl.load import (
+    load_to_postgres,
+    record_pipeline_run,
+    save_curated_snapshot,
+    save_raw_snapshot,
+)
 from etl.logger import get_logger
 from etl.migrations import apply_migrations
 from etl.transform import transform_data
@@ -14,9 +19,27 @@ from etl.validate import validate_data
 logger = get_logger(__name__)
 
 
+def parse_utc_timestamp(value):
+    """Parse a timezone-aware ISO-8601 value and normalize it to UTC."""
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        timestamp = str(value).strip()
+        if timestamp.endswith("Z"):
+            timestamp = f"{timestamp[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(timestamp)
+        except ValueError as exc:
+            raise ValueError(f"Invalid ISO-8601 timestamp: {value}") from exc
+
+    if parsed.tzinfo is None:
+        raise ValueError("The run timestamp must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
 def run_pipeline(run_at=None, upload_to_s3=S3_ENABLED, load_postgres=True):
     pipeline_run_id = str(uuid.uuid4())
-    started_at = run_at or datetime.now(timezone.utc)
+    started_at = parse_utc_timestamp(run_at) if run_at is not None else datetime.now(timezone.utc)
     logger.info(f"Crypto ETL pipeline started: run_id={pipeline_run_id}")
     try:
         if load_postgres:
@@ -24,6 +47,8 @@ def run_pipeline(run_at=None, upload_to_s3=S3_ENABLED, load_postgres=True):
             record_pipeline_run(pipeline_run_id, started_at, "running")
 
         raw_data = extract_crypto_data()
+        # Preserve the source response before applying data-quality or business rules.
+        save_raw_snapshot(raw_data, pipeline_run_id, started_at, upload_to_s3)
         if not raw_data:
             raise RuntimeError("Extraction returned no data")
 
@@ -34,8 +59,7 @@ def run_pipeline(run_at=None, upload_to_s3=S3_ENABLED, load_postgres=True):
         dimensions = transform_data(valid_data, run_at=started_at, run_id=pipeline_run_id)
         dim_category, dim_coin, dim_date, dim_currency, fact_crypto_prices = dimensions
 
-        # Persist source data before warehouse writes so transformations can be replayed.
-        save_snapshots(raw_data, fact_crypto_prices, pipeline_run_id, started_at, upload_to_s3)
+        save_curated_snapshot(fact_crypto_prices, pipeline_run_id, started_at, upload_to_s3)
         if load_postgres:
             load_to_postgres(dim_category, dim_coin, dim_date, dim_currency, fact_crypto_prices)
             record_pipeline_run(pipeline_run_id, started_at, "succeeded", len(raw_data), len(valid_data))
@@ -44,13 +68,20 @@ def run_pipeline(run_at=None, upload_to_s3=S3_ENABLED, load_postgres=True):
     except Exception as exc:
         logger.exception(f"Crypto ETL pipeline failed: run_id={pipeline_run_id}")
         if load_postgres:
-            record_pipeline_run(pipeline_run_id, started_at, "failed", error_message=str(exc))
+            try:
+                record_pipeline_run(pipeline_run_id, started_at, "failed", error_message=str(exc))
+            except Exception:
+                logger.exception("Unable to record the failed pipeline run")
         raise
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run the crypto market ETL pipeline.")
-    parser.add_argument("--run-at", help="UTC ISO-8601 timestamp used for a reproducible run")
+    parser.add_argument(
+        "--run-at",
+        type=parse_utc_timestamp,
+        help="timezone-aware ISO-8601 timestamp used for a reproducible run",
+    )
     parser.add_argument("--skip-s3", action="store_true", help="Write snapshots locally without uploading")
     parser.add_argument("--skip-postgres", action="store_true", help="Skip warehouse loading and audit records")
     return parser.parse_args()

@@ -1,10 +1,33 @@
 import pandas as pd  # type: ignore
 from etl.logger import get_logger
+from config.config import CURRENCY
 from config.coins import COIN_CATEGORIES, CATEGORY_ID
 
 logger = get_logger(__name__)
 
-def transform_data(data, run_at=None, run_id=None, run_date=None):
+_CURRENCY_NAMES = {
+    "aud": "Australian Dollar",
+    "btc": "Bitcoin",
+    "cad": "Canadian Dollar",
+    "chf": "Swiss Franc",
+    "cny": "Chinese Yuan",
+    "eth": "Ether",
+    "eur": "Euro",
+    "gbp": "British Pound",
+    "inr": "Indian Rupee",
+    "jpy": "Japanese Yen",
+    "usd": "US Dollar",
+}
+
+
+def _normalize_currency(currency):
+    currency_code = str(currency).strip().lower()
+    if not currency_code or len(currency_code) > 10 or not currency_code.replace("-", "").isalnum():
+        raise ValueError("Currency must be a non-empty alphanumeric code of at most 10 characters")
+    return currency_code
+
+
+def transform_data(data, run_at=None, run_id=None, run_date=None, currency=None):
     logger.info("Transforming data...")
 
     df = pd.DataFrame(data)
@@ -78,10 +101,11 @@ def transform_data(data, run_at=None, run_id=None, run_date=None):
     ]]
 
     # ─── dim_currency ───
+    currency_code = _normalize_currency(currency or CURRENCY)
     dim_currency = pd.DataFrame([{
-        "currency_id": 1,
-        "currency_name": "US Dollar",
-        "currency_symbol": "usd"
+        "currency_id": currency_code,
+        "currency_name": _CURRENCY_NAMES.get(currency_code, currency_code.upper()),
+        "currency_symbol": currency_code,
     }])
 
 
@@ -91,11 +115,11 @@ def transform_data(data, run_at=None, run_id=None, run_date=None):
     observed_key = observed_at.dt.strftime("%Y%m%dT%H%M%S%fZ")
 
     fact_crypto_prices = pd.DataFrame({
-        "price_id": df["id"].astype(str) + "_" + observed_key,
+        "price_id": df["id"].astype(str) + "_" + currency_code + "_" + observed_key,
         "coin_id": df["id"],
         "etl_run_date_id": etl_date_id,
         "api_updated_date_id": api_date_id,
-        "currency_id": 1,  # USD
+        "currency_id": currency_code,
         "observed_at": observed_at,
         "ingested_at": etl_run_dt,
         "pipeline_run_id": run_id,

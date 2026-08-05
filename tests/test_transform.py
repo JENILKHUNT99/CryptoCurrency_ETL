@@ -56,4 +56,27 @@ def test_transform_uses_exact_observed_timestamp_and_floors_date_key():
     assert fact.loc[0, "api_updated_date_id"] == 2025072010
     assert fact.loc[0, "etl_run_date_id"] == 2025072010
     assert fact.loc[0, "pipeline_run_id"] == "11111111-1111-1111-1111-111111111111"
+    assert "_usd_" in fact.loc[0, "price_id"]
     assert fact.loc[0, "price_id"].endswith("20250720T100000000000Z")
+
+
+def test_transform_uses_configured_currency_in_dimension_and_fact_key():
+    *_, dim_currency, eur_fact = transform_data(
+        SAMPLE_COINS_VALID,
+        run_at="2025-07-20T10:00:00Z",
+        currency="EUR",
+    )
+    *_, usd_fact = transform_data(
+        SAMPLE_COINS_VALID,
+        run_at="2025-07-20T10:00:00Z",
+        currency="usd",
+    )
+
+    assert dim_currency.to_dict("records") == [{
+        "currency_id": "eur",
+        "currency_name": "Euro",
+        "currency_symbol": "eur",
+    }]
+    assert eur_fact.loc[0, "currency_id"] == "eur"
+    assert "_eur_" in eur_fact.loc[0, "price_id"]
+    assert eur_fact.loc[0, "price_id"] != usd_fact.loc[0, "price_id"]
