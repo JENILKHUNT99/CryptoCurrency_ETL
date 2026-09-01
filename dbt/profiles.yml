@@ -1,0 +1,15 @@
+# dbt Profiles Configuration
+# This file defines database connections for dbt
+
+crypto_etl:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DB_HOST', 'localhost') }}"
+      port: "{{ env_var('DB_PORT', '5432') | as_number }}"
+      user: "{{ env_var('DB_USER', 'postgres') }}"
+      password: "{{ env_var('DB_PASSWORD') }}"
+      dbname: "{{ env_var('DB_NAME', 'crypto_etl') }}"
+      schema: public
+      threads: 4

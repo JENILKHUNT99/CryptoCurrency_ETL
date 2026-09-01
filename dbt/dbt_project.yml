@@ -1,0 +1,37 @@
+# dbt Project Configuration
+# This file configures the dbt project for the cryptocurrency ETL pipeline
+
+name: 'crypto_etl'
+version: '1.0.0'
+config-version: 2
+
+# Profile to use (defined in profiles.yml)
+profile: 'crypto_etl'
+
+# Model directories
+model-paths: ["models"]
+test-paths: ["tests"]
+
+# Where to store compiled SQL and run results
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Model configuration
+models:
+  crypto_etl:
+    # Staging models - raw data cleaned
+    staging:
+      +schema: staging
+      +materialized: view
+    
+    # Dimension models - reference data
+    dimensions:
+      +schema: dim
+      +materialized: table
+    
+    # Fact models - transaction data
+    facts:
+      +schema: fact
+      +materialized: table

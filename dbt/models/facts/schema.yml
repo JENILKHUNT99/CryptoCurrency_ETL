@@ -1,0 +1,99 @@
+# Fact and Dimension schema definitions and tests
+
+version: 2
+
+models:
+  # Dimension: Coin
+  - name: dim_coin
+    description: "Cryptocurrency dimension with categories"
+    columns:
+      - name: coin_id
+        description: "Unique coin identifier"
+        tests:
+          - unique
+          - not_null
+      - name: coin_symbol
+        description: "Coin symbol"
+        tests:
+          - not_null
+      - name: coin_name
+        description: "Coin display name"
+        tests:
+          - not_null
+      - name: category_id
+        description: "Foreign key to dim_category"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_category')
+              field: category_id
+
+  # Dimension: Category
+  - name: dim_category
+    description: "Cryptocurrency categories"
+    columns:
+      - name: category_id
+        description: "Unique category identifier"
+        tests:
+          - unique
+          - not_null
+      - name: category_name
+        description: "Category display name"
+        tests:
+          - unique
+          - not_null
+
+  # Dimension: Currency
+  - name: dim_currency
+    description: "Reporting currency"
+    columns:
+      - name: currency_id
+        description: "Currency code"
+        tests:
+          - unique
+          - not_null
+
+  # Dimension: Date
+  - name: dim_date
+    description: "Hourly calendar dimension"
+    columns:
+      - name: date_id
+        description: "Surrogate key (YYYYMMDDHH)"
+        tests:
+          - unique
+          - not_null
+      - name: year
+        description: "Year"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['2024', '2025', '2026']
+
+  # Fact: Crypto Prices
+  - name: fact_crypto_prices
+    description: "Hourly cryptocurrency price observations"
+    columns:
+      - name: price_id
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+      - name: coin_id
+        description: "Foreign key to dim_coin"
+        tests:
+          - not_null
+      - name: price
+        description: "Current price"
+        tests:
+          - not_null
+      - name: market_cap
+        description: "Market capitalization"
+        tests:
+          - not_null
+    
+    # Table-level tests
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - coin_id
+            - observed_at

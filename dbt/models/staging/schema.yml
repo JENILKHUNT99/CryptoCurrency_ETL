@@ -1,0 +1,33 @@
+# Staging schema definitions and tests
+
+version: 2
+
+sources:
+  - name: raw
+    description: "Raw cryptocurrency data loaded by Python ETL"
+    schema: public
+    tables:
+      - name: coins
+        description: "Raw coin data from CoinGecko API"
+        columns:
+          - name: id
+            description: "Unique coin identifier (e.g., 'bitcoin')"
+            tests:
+              - unique
+              - not_null
+          - name: symbol
+            description: "Coin symbol (e.g., 'btc')"
+            tests:
+              - not_null
+          - name: name
+            description: "Coin display name (e.g., 'Bitcoin')"
+            tests:
+              - not_null
+          - name: current_price
+            description: "Current price in reporting currency"
+            tests:
+              - not_null
+          - name: market_cap
+            description: "Market capitalization"
+            tests:
+              - not_null
