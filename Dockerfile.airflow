@@ -1,0 +1,33 @@
+# Airflow with ETL code
+FROM apache/airflow:2.9.1-python3.11
+
+USER root
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+USER airflow
+
+# Install Python packages
+RUN pip install --no-cache-dir \
+    apache-airflow-providers-postgres>=5.0.0 \
+    pandas==2.2.3 \
+    psycopg2-binary==2.9.10 \
+    python-dotenv==1.0.1 \
+    requests==2.32.3
+
+WORKDIR /opt/airflow
+
+# Copy ETL code and config
+COPY --chown=airflow:airflow config/ /opt/airflow/config/
+COPY --chown=airflow:airflow etl/ /opt/airflow/etl/
+COPY --chown=airflow:airflow main.py /opt/airflow/
+COPY --chown=airflow:airflow dags/ /opt/airflow/dags/
+
+# Also copy config files to root for imports
+COPY --chown=airflow:airflow config/coins.py /opt/airflow/
+COPY --chown=airflow:airflow config/config.py /opt/airflow/

@@ -1,41 +1,71 @@
 services:
-  app:
-    build: .
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
-      DB_NAME: ${DB_NAME:-crypto_etl}
-      S3_ENABLED: ${S3_ENABLED:-false}
-      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-}
-      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-south-1}
-      MIN_VALID_RECORDS: ${MIN_VALID_RECORDS:-1}
-      CURRENCY: ${CURRENCY:-usd}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    volumes:
-      - ./data:/app/data
-    restart: "no"
-
+  # ===========================================
+  # PostgreSQL - Database for everything
+  # ===========================================
   postgres:
     image: postgres:16
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-crypto123}
       POSTGRES_DB: ${DB_NAME:-crypto_etl}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
       - ./init/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./migrations:/docker-entrypoint-initdb.d/migrations:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: always
+
+  # ===========================================
+  # Airflow - Scheduler + Webserver
+  # ===========================================
+  airflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Airflow Core
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${DB_USER:-postgres}:${DB_PASSWORD:-crypto123}@postgres:5432/${DB_NAME:-crypto_etl}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      # Database Connection
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-crypto123}
+      DB_NAME: ${DB_NAME:-crypto_etl}
+      # ETL Config
+      S3_ENABLED: "false"
+      MIN_VALID_RECORDS: "1"
+      CURRENCY: usd
+      LOG_LEVEL: INFO
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./data:/app/data
+      - ./logs:/opt/airflow/logs
+      - ./config:/opt/airflow/config
+      - ./etl:/opt/airflow/etl
+    ports:
+      - "8080:8080"
+    command: bash -c "airflow db init && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true && airflow webserver & airflow scheduler"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
 
 volumes:
-  pgdata:
+  postgres_data:
