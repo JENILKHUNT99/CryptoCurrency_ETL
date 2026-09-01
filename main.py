@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from config.config import MIN_VALID_RECORDS, S3_ENABLED
 from etl.extract import extract_crypto_data
 from etl.load import (
+    load_raw_coins,
     load_to_postgres,
     record_pipeline_run,
     save_curated_snapshot,
@@ -51,6 +52,10 @@ def run_pipeline(run_at=None, upload_to_s3=S3_ENABLED, load_postgres=True):
         save_raw_snapshot(raw_data, pipeline_run_id, started_at, upload_to_s3)
         if not raw_data:
             raise RuntimeError("Extraction returned no data")
+
+        if load_postgres:
+            # raw_coins is the source table for the dbt transformation layer.
+            load_raw_coins(raw_data, started_at)
 
         valid_data = validate_data(raw_data)
         if len(valid_data) < MIN_VALID_RECORDS:

@@ -59,7 +59,13 @@ def load_raw_coins(raw_data, run_at):
         with conn.cursor() as cursor:
             # Prepare raw data for insertion
             rows = []
+            skipped = 0
             for coin in raw_data:
+                # raw_coins requires an identity for every row; dbt applies the
+                # remaining data-quality rules in stg_raw_coins.
+                if not coin.get('id') or not coin.get('symbol') or not coin.get('name'):
+                    skipped += 1
+                    continue
                 rows.append((
                     coin.get('id'),
                     coin.get('symbol'),
@@ -94,6 +100,8 @@ def load_raw_coins(raw_data, run_at):
             """
             execute_values(cursor, insert_query, rows, page_size=500)
             logger.info(f"Loaded {len(rows)} raw coins to raw_coins table")
+            if skipped:
+                logger.warning(f"Skipped {skipped} raw coins missing id, symbol, or name")
         conn.commit()
     except Exception:
         conn.rollback()

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from etl.load import load_to_postgres, save_snapshots
+from etl.load import load_raw_coins, load_to_postgres, save_snapshots
 from tests.fixtures import SAMPLE_COINS_VALID
 
 
@@ -88,6 +88,40 @@ def test_load_to_postgres_rolls_back_failed_batch(monkeypatch):
 
     with pytest.raises(RuntimeError, match="load failed"):
         load_to_postgres(*frames)
+
+    connection.commit.assert_not_called()
+    connection.rollback.assert_called_once_with()
+    connection.close.assert_called_once_with()
+
+
+def test_load_raw_coins_skips_rows_without_an_identity(monkeypatch):
+    """raw_coins requires id, symbol and name; dbt applies the remaining rules."""
+    connection = MagicMock()
+    monkeypatch.setattr("etl.load._get_pg_connection", MagicMock(return_value=connection))
+    execute_values = MagicMock()
+    monkeypatch.setattr("etl.load.execute_values", execute_values)
+    raw_data = [
+        *SAMPLE_COINS_VALID,
+        {**SAMPLE_COINS_VALID[0], "id": None},
+        {**SAMPLE_COINS_VALID[0], "symbol": None},
+        {**SAMPLE_COINS_VALID[0], "name": None},
+    ]
+
+    load_raw_coins(raw_data, pd.Timestamp("2025-07-20T10:00:00Z"))
+
+    loaded_rows = execute_values.call_args.args[2]
+    assert [row[0] for row in loaded_rows] == ["bitcoin"]
+    connection.commit.assert_called_once_with()
+    connection.rollback.assert_not_called()
+
+
+def test_load_raw_coins_rolls_back_on_failure(monkeypatch):
+    connection = MagicMock()
+    monkeypatch.setattr("etl.load._get_pg_connection", MagicMock(return_value=connection))
+    monkeypatch.setattr("etl.load.execute_values", MagicMock(side_effect=RuntimeError("insert failed")))
+
+    with pytest.raises(RuntimeError, match="insert failed"):
+        load_raw_coins(SAMPLE_COINS_VALID, pd.Timestamp("2025-07-20T10:00:00Z"))
 
     connection.commit.assert_not_called()
     connection.rollback.assert_called_once_with()
