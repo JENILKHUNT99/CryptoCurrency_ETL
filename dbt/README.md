@@ -48,9 +48,16 @@ Ready for analytics!
 | `stg_raw_coins` | View | Cleans and validates raw coin data |
 | `dim_coin` | Table | Unique coins with category mapping |
 | `dim_category` | Table | Distinct categories |
-| `dim_currency` | View | Reporting currency |
+| `dim_currency` | Table | Reporting currency |
 | `dim_date` | Table | Hourly calendar dimension |
 | `fact_crypto_prices` | Table | Price observations (star schema fact) |
+
+### Target schemas
+
+`profiles.yml` connects to the `public` schema and `dbt_project.yml` appends a
+suffix per layer, so dbt builds into `public_staging`, `public_dim` and
+`public_fact`. The Python loader writes its own star schema into `public`; the two
+sets of tables coexist rather than overwrite each other.
 
 ## Running dbt
 
@@ -80,7 +87,13 @@ dbt docs serve
 
 ### Environment Variables
 
-Set before running:
+`profiles.yml` and the models read their configuration from the environment:
+
+| Variable | Used by | Purpose |
+| --- | --- | --- |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | `profiles.yml` | Connection |
+| `CURRENCY` | `dim_currency`, `fact_crypto_prices` | Reporting currency, same value the Python config uses |
+| `PIPELINE_RUN_ID` | `stg_raw_coins` | Stamps each row with the ETL run that produced it; defaults to `manual` |
 
 ```bash
 export DB_HOST=localhost
@@ -88,6 +101,7 @@ export DB_PORT=5432
 export DB_USER=postgres
 export DB_PASSWORD=your_password
 export DB_NAME=crypto_etl
+export CURRENCY=usd
 ```
 
 ### Run Specific Models
@@ -122,16 +136,22 @@ dbt test
 
 ## Integration with Airflow
 
-In Airflow DAG:
+dbt runs in its own virtualenv at `/opt/dbt_venv`, because dbt-core and Airflow
+both pin `click`, `jinja2` and `protobuf`. The DAG therefore invokes it with a
+`BashOperator` rather than a dbt provider operator:
 
 ```python
-from airflow.providers.dbt.operators.dbt import DbtRunOperator
-
-dbt_run = DbtRunOperator(
-    task_id='dbt_run',
-    dbt_dir='/opt/airflow/dbt',
+dbt_run = BashOperator(
+    task_id="dbt_run",
+    bash_command="/opt/dbt_venv/bin/dbt run --project-dir /opt/crypto_etl/dbt",
+    env={"PIPELINE_RUN_ID": "{{ ti.xcom_pull(task_ids='run_python_etl') }}"},
+    append_env=True,
 )
 ```
+
+`dbt deps` is executed at image build time into `/opt/dbt/dbt_packages`, a path
+outside the bind-mounted project directory, so scheduled runs do not depend on
+reaching the dbt package hub.
 
 ## Documentation
 

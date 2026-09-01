@@ -12,10 +12,16 @@ flowchart LR
     VALIDATE --> TRANSFORM[Transform]
     TRANSFORM --> CURATED[Curated CSV]
     TRANSFORM --> DB[(PostgreSQL)]
+    EXTRACT --> RAWCOINS[(raw_coins)]
+    RAWCOINS --> DBT[dbt models]
+    DBT --> DB
     RAW -. optional .-> S3[(Amazon S3)]
     CURATED -. optional .-> S3
     DB --> AUDIT[Pipeline Audit]
 ```
+
+Apache Airflow schedules the pipeline hourly and runs `dbt run` and `dbt test`
+after the Python ETL completes.
 
 ## Pipeline flow
 
@@ -24,11 +30,16 @@ flowchart LR
 3. A `running` record is created in the pipeline audit table.
 4. Market data is requested from CoinGecko.
 5. The original API response is saved as a raw JSON snapshot.
-6. Invalid records are rejected using the configured data-quality rules.
-7. Valid records are transformed into dimension and fact DataFrames.
-8. The transformed fact data is saved as a curated CSV snapshot.
-9. Dimensions and facts are upserted into PostgreSQL in one transaction.
-10. The audit record is updated to `succeeded` or `failed`.
+6. The raw records are loaded into `raw_coins`, the source table for dbt.
+7. Invalid records are rejected using the configured data-quality rules.
+8. Valid records are transformed into dimension and fact DataFrames.
+9. The transformed fact data is saved as a curated CSV snapshot.
+10. Dimensions and facts are upserted into PostgreSQL in one transaction.
+11. The audit record is updated to `succeeded` or `failed`.
+
+Under Airflow the same `run_pipeline()` function runs as one task, followed by
+`dbt run` and `dbt test`. See [`AIRFLOW.md`](AIRFLOW.md) and
+[`dbt/README.md`](dbt/README.md).
 
 ## Data model
 
@@ -79,13 +90,16 @@ Records are rejected for missing or null fields, invalid identifiers, duplicate 
 Crypto_ETL/
 ├── .github/workflows/ci.yml    # Continuous integration
 ├── config/                     # Environment and coin configuration
+├── dags/                       # Airflow DAG definition
+├── dbt/                        # dbt transformation layer and tests
 ├── docs/                       # Example analytical SQL
 ├── etl/                        # Extract, validate, transform, load, and migrations
 ├── init/                       # PostgreSQL initialization
 ├── migrations/                 # Versioned warehouse migrations
 ├── tests/                      # Automated tests and fixtures
-├── docker-compose.yml          # Application and PostgreSQL services
+├── docker-compose.yml          # Airflow and PostgreSQL services
 ├── Dockerfile                  # Python application image
+├── Dockerfile.airflow          # Airflow image with the ETL project and dbt
 ├── main.py                     # Pipeline entry point
 ├── requirements.txt            # Runtime dependencies
 └── requirements-dev.txt        # Development dependencies
