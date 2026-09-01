@@ -51,12 +51,16 @@ services:
       MIN_VALID_RECORDS: "1"
       CURRENCY: usd
       LOG_LEVEL: INFO
+      PYTHONPATH: /opt/crypto_etl
+      RAW_DATA_DIR: /opt/crypto_etl/data/raw
+      CURATED_DATA_DIR: /opt/crypto_etl/data/curated
     volumes:
       - ./dags:/opt/airflow/dags
-      - ./data:/app/data
       - ./logs:/opt/airflow/logs
-      - ./config:/opt/airflow/config
-      - ./etl:/opt/airflow/etl
+      - ./config:/opt/crypto_etl/config
+      - ./etl:/opt/crypto_etl/etl
+      - ./migrations:/opt/crypto_etl/migrations
+      - ./data:/opt/crypto_etl/data
     ports:
       - "8080:8080"
     command: bash -c "airflow db init && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true && airflow webserver & airflow scheduler"

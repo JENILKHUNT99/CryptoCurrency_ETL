@@ -11,10 +11,12 @@ This DAG orchestrates the cryptocurrency data ETL pipeline:
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.providers.postgres.operators.postgres import PostgresOperator
 
 import sys
-sys.path.insert(0, '/opt/airflow')
+
+ETL_PROJECT_DIR = "/opt/crypto_etl"
+if ETL_PROJECT_DIR not in sys.path:
+    sys.path.insert(0, ETL_PROJECT_DIR)
 
 from etl.extract import extract_crypto_data
 from etl.validate import validate_data
