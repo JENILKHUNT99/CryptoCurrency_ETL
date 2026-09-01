@@ -12,8 +12,10 @@ profile: 'crypto_etl'
 model-paths: ["models"]
 test-paths: ["tests"]
 
-# Where to store compiled SQL and run results
-target-path: "target"
+# Installed outside the project dir so the bind mount cannot hide the packages
+# that were vendored into the image at build time.
+packages-install-path: "/opt/dbt/dbt_packages"
+
 clean-targets:
   - "target"
   - "dbt_packages"

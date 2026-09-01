@@ -26,7 +26,7 @@ cleaned AS (
         last_updated::TIMESTAMPTZ AS observed_at,
         
         -- Metadata
-        '{{ var("run_id", "manual") }}' AS pipeline_run_id,
+        '{{ env_var("PIPELINE_RUN_ID", "manual") }}' AS pipeline_run_id,
         NOW() AS ingested_at
         
     FROM source_data

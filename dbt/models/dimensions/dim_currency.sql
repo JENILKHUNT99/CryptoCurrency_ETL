@@ -2,8 +2,8 @@
 -- Reporting currency for prices
 
 SELECT
-    '{{ var("currency", "usd") }}' AS currency_id,
-    CASE '{{ var("currency", "usd") }}'
+    '{{ env_var("CURRENCY", "usd") }}' AS currency_id,
+    CASE '{{ env_var("CURRENCY", "usd") }}'
         WHEN 'aud' THEN 'Australian Dollar'
         WHEN 'btc' THEN 'Bitcoin'
         WHEN 'cad' THEN 'Canadian Dollar'
@@ -15,6 +15,6 @@ SELECT
         WHEN 'inr' THEN 'Indian Rupee'
         WHEN 'jpy' THEN 'Japanese Yen'
         WHEN 'usd' THEN 'US Dollar'
-        ELSE UPPER('{{ var("currency", "usd") }}')
+        ELSE UPPER('{{ env_var("CURRENCY", "usd") }}')
     END AS currency_name,
-    '{{ var("currency", "usd") }}' AS currency_symbol
+    '{{ env_var("CURRENCY", "usd") }}' AS currency_symbol

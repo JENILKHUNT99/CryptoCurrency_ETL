@@ -33,14 +33,14 @@ dates AS (
 fact AS (
     SELECT
         -- Surrogate key: coin_id + currency + observed_at
-        s.coin_id || '_' || '{{ var("currency", "usd") }}' || '_' || 
+        s.coin_id || '_' || '{{ env_var("CURRENCY", "usd") }}' || '_' || 
         TO_CHAR(s.observed_at, 'YYYYMMDD"T"HH24MISSUS"Z"') AS price_id,
         
         s.coin_id,
         c.category_id,
         d.date_id AS api_updated_date_id,
         TO_CHAR(DATE_TRUNC('hour', s.ingested_at), 'YYYYMMDDHH')::INTEGER AS etl_run_date_id,
-        '{{ var("currency", "usd") }}' AS currency_id,
+        '{{ env_var("CURRENCY", "usd") }}' AS currency_id,
         
         -- Timestamps
         s.observed_at,

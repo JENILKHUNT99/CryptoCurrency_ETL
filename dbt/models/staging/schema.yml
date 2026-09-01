@@ -8,6 +8,7 @@ sources:
     schema: public
     tables:
       - name: coins
+        identifier: raw_coins
         description: "Raw coin data from CoinGecko API"
         columns:
           - name: id
