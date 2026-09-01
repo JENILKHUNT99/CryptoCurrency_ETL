@@ -1,6 +1,10 @@
 import os
 from dotenv import load_dotenv
-from config.coins import COINS
+
+try:
+    from config.coins import COINS
+except ImportError:
+    from coins import COINS
 
 load_dotenv()
 
