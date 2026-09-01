@@ -54,12 +54,16 @@ services:
       PYTHONPATH: /opt/crypto_etl
       RAW_DATA_DIR: /opt/crypto_etl/data/raw
       CURATED_DATA_DIR: /opt/crypto_etl/data/curated
+      # dbt
+      DBT_PROFILES_DIR: /opt/crypto_etl/dbt
+      DBT_TARGET_PATH: /tmp/dbt_target
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - ./config:/opt/crypto_etl/config
       - ./etl:/opt/crypto_etl/etl
       - ./migrations:/opt/crypto_etl/migrations
+      - ./dbt:/opt/crypto_etl/dbt
       - ./data:/opt/crypto_etl/data
     ports:
       - "8080:8080"

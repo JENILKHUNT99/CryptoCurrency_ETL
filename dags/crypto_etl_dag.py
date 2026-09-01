@@ -1,109 +1,83 @@
 """
 Crypto ETL Pipeline DAG
 
-This DAG orchestrates the cryptocurrency data ETL pipeline:
-1. Extract data from CoinGecko API
-2. Validate data quality
-3. Transform into star schema
-4. Load to PostgreSQL
+Python ETL (extract → validate → transform → load) feeds the PostgreSQL star
+schema and the raw_coins source table. dbt then rebuilds the analytical models
+from raw_coins and asserts its data-quality tests.
+
+    apply_migrations → run_python_etl → dbt_run → dbt_test
 """
 
-from datetime import datetime, timedelta
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-
 import sys
+from datetime import datetime, timedelta
+
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
 
 ETL_PROJECT_DIR = "/opt/crypto_etl"
 if ETL_PROJECT_DIR not in sys.path:
     sys.path.insert(0, ETL_PROJECT_DIR)
 
-from etl.extract import extract_crypto_data
-from etl.validate import validate_data
-from etl.transform import transform_data
-from etl.load import (
-    save_raw_snapshot,
-    save_curated_snapshot,
-    load_to_postgres,
-    record_pipeline_run,
-)
-from etl.migrations import apply_migrations
-from config.config import MIN_VALID_RECORDS
-import uuid
+from etl.migrations import apply_migrations  # noqa: E402
+from main import run_pipeline  # noqa: E402
+
+DBT_BIN = "/opt/dbt_venv/bin/dbt"
+DBT_PROJECT_DIR = f"{ETL_PROJECT_DIR}/dbt"
+
+# dbt models read PIPELINE_RUN_ID via env_var(), so the rows they build can be
+# traced back to the ETL run that populated raw_coins. append_env keeps the
+# database credentials that profiles.yml needs.
+DBT_ENV = {"PIPELINE_RUN_ID": "{{ ti.xcom_pull(task_ids='run_python_etl') }}"}
 
 
-def run_etl_pipeline(**context):
-    """
-    Main ETL pipeline function.
-    Called by Airflow task.
-    """
-    pipeline_run_id = str(uuid.uuid4())
-    started_at = datetime.utcnow()
-    
-    print(f"Starting ETL pipeline: run_id={pipeline_run_id}")
-    
-    # Run migrations first
-    apply_migrations()
-    record_pipeline_run(pipeline_run_id, started_at, "running")
-    
-    # Extract
-    raw_data = extract_crypto_data()
-    if not raw_data:
-        raise RuntimeError("Extraction returned no data")
-    
-    # Save raw snapshot
-    save_raw_snapshot(raw_data, pipeline_run_id, started_at, upload_to_s3=False)
-    
-    # Validate
-    valid_data = validate_data(raw_data)
-    if len(valid_data) < MIN_VALID_RECORDS:
-        raise RuntimeError(
-            f"Only {len(valid_data)} valid records received; minimum is {MIN_VALID_RECORDS}"
-        )
-    
-    # Transform
-    dimensions = transform_data(valid_data, run_at=started_at, run_id=pipeline_run_id)
-    dim_category, dim_coin, dim_date, dim_currency, fact_crypto_prices = dimensions
-    
-    # Save curated snapshot
-    save_curated_snapshot(fact_crypto_prices, pipeline_run_id, started_at, upload_to_s3=False)
-    
-    # Load to PostgreSQL
-    load_to_postgres(dim_category, dim_coin, dim_date, dim_currency, fact_crypto_prices)
-    
-    # Record success
-    record_pipeline_run(pipeline_run_id, started_at, "succeeded", len(raw_data), len(valid_data))
-    
-    print(f"ETL pipeline completed: run_id={pipeline_run_id}")
-    return pipeline_run_id
+def run_python_etl(**context):
+    """Run the same pipeline as the CLI entry point, so behaviour cannot drift."""
+    return run_pipeline()
 
 
-# Default arguments for the DAG
 default_args = {
-    'owner': 'crypto_etl',
-    'depends_on_past': False,
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 3,
-    'retry_delay': timedelta(minutes=5),
+    "owner": "crypto_etl",
+    "depends_on_past": False,
+    "email_on_failure": False,
+    "email_on_retry": False,
+    "retries": 3,
+    "retry_delay": timedelta(minutes=5),
 }
 
-# Define the DAG
 with DAG(
-    'crypto_etl_pipeline',
+    "crypto_etl_pipeline",
     default_args=default_args,
-    description='Extract, validate, transform, and load cryptocurrency data',
-    schedule_interval='@hourly',  # Run every hour
+    description="Extract, validate, transform, and load cryptocurrency data, then run dbt models",
+    schedule_interval="@hourly",
     start_date=datetime(2025, 1, 1),
-    catchup=False,  # Don't run past schedules
-    max_active_runs=1,  # Only one run at a time
-    tags=['crypto', 'etl'],
+    catchup=False,
+    max_active_runs=1,
+    tags=["crypto", "etl", "dbt"],
 ) as dag:
 
-    # Single task that runs the entire pipeline
-    run_etl = PythonOperator(
-        task_id='run_crypto_etl',
-        python_callable=run_etl_pipeline,
+    migrate = PythonOperator(
+        task_id="apply_migrations",
+        python_callable=apply_migrations,
     )
 
-    run_etl
+    etl = PythonOperator(
+        task_id="run_python_etl",
+        python_callable=run_python_etl,
+    )
+
+    dbt_run = BashOperator(
+        task_id="dbt_run",
+        bash_command=f"{DBT_BIN} run --project-dir {DBT_PROJECT_DIR}",
+        env=DBT_ENV,
+        append_env=True,
+    )
+
+    dbt_test = BashOperator(
+        task_id="dbt_test",
+        bash_command=f"{DBT_BIN} test --project-dir {DBT_PROJECT_DIR}",
+        env=DBT_ENV,
+        append_env=True,
+    )
+
+    migrate >> etl >> dbt_run >> dbt_test

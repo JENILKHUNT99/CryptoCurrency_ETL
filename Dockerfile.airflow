@@ -10,6 +10,11 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# /opt is root-owned; pre-create the paths the airflow user has to write to.
+# dbt recreates its packages dir, so it needs write access to the parent too.
+RUN mkdir -p /opt/dbt_venv /opt/dbt/dbt_packages /opt/crypto_etl \
+    && chown -R airflow:root /opt/dbt_venv /opt/dbt /opt/crypto_etl
+
 USER airflow
 
 # Install Python packages
@@ -22,14 +27,27 @@ RUN pip install --no-cache-dir \
 
 WORKDIR /opt/airflow
 
+# dbt is installed in its own virtualenv: dbt-core and Airflow both pin click,
+# jinja2 and protobuf, so sharing one environment invites resolver conflicts.
+RUN python -m venv /opt/dbt_venv \
+    && /opt/dbt_venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/dbt_venv/bin/pip install --no-cache-dir "dbt-core==1.8.9" "dbt-postgres==1.8.2"
+
 # ETL project lives outside AIRFLOW_HOME so that the `config` package cannot
 # collide with Airflow's own $AIRFLOW_HOME/config directory.
-ENV PYTHONPATH=/opt/crypto_etl
+ENV PYTHONPATH=/opt/crypto_etl \
+    DBT_PROFILES_DIR=/opt/crypto_etl/dbt \
+    DBT_TARGET_PATH=/tmp/dbt_target
 
 COPY --chown=airflow:airflow config/ /opt/crypto_etl/config/
 COPY --chown=airflow:airflow etl/ /opt/crypto_etl/etl/
 COPY --chown=airflow:airflow migrations/ /opt/crypto_etl/migrations/
 COPY --chown=airflow:airflow main.py /opt/crypto_etl/main.py
+COPY --chown=airflow:airflow dbt/ /opt/crypto_etl/dbt/
+
+# Vendor dbt packages at build time into a path outside the bind-mounted
+# project dir, so DAG runs do not depend on reaching the dbt package hub.
+RUN /opt/dbt_venv/bin/dbt deps --project-dir /opt/crypto_etl/dbt
 
 # DAG definitions
 COPY --chown=airflow:airflow dags/ /opt/airflow/dags/
