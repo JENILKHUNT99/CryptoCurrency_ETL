@@ -1,16 +1,5 @@
-CREATE TABLE IF NOT EXISTS pipeline_runs (
-    pipeline_run_id UUID PRIMARY KEY,
-    started_at TIMESTAMPTZ NOT NULL,
-    completed_at TIMESTAMPTZ,
-    status VARCHAR(20) NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
-    extracted_count INTEGER NOT NULL DEFAULT 0,
-    valid_count INTEGER NOT NULL DEFAULT 0,
-    error_message TEXT
-);
-
-INSERT INTO pipeline_runs (pipeline_run_id, started_at, completed_at, status)
-VALUES ('00000000-0000-0000-0000-000000000000', NOW(), NOW(), 'succeeded')
-ON CONFLICT (pipeline_run_id) DO NOTHING;
+-- Note: pipeline_runs table is created in 001_initial_schema.sql
+-- This migration only upgrades existing tables and adds missing columns
 
 ALTER TABLE dim_date
     ALTER COLUMN datetime TYPE TIMESTAMPTZ USING datetime AT TIME ZONE 'UTC';
