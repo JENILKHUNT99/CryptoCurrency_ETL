@@ -4,6 +4,7 @@ from pathlib import Path
 import boto3  # type: ignore
 import psycopg2  # type: ignore
 from psycopg2.extras import execute_values  # type: ignore
+from psycopg2.sql import SQL, Identifier  # type: ignore
 
 from config.config import AWS_REGION, CURATED_DATA_DIR, POSTGRES_CONFIG, RAW_DATA_DIR, S3_BUCKET_NAME
 from etl.logger import get_logger
@@ -16,19 +17,90 @@ def _get_pg_connection():
 
 
 def _upsert_df(cursor, df, table_name, pk_column):
+    """Upsert DataFrame using safe SQL identifier quoting to prevent SQL injection."""
     if df is None or df.empty:
         logger.warning(f"Skipping {table_name}: empty DataFrame")
         return
 
-    columns = list(df.columns)
-    column_names = ", ".join(columns)
-    update_set = ", ".join(f"{column} = EXCLUDED.{column}" for column in columns if column != pk_column)
-    query = (
-        f"INSERT INTO {table_name} ({column_names}) VALUES %s "
-        f"ON CONFLICT ({pk_column}) DO UPDATE SET {update_set}"
+    # Convert column names to safe Identifier objects
+    columns = [Identifier(col) for col in df.columns]
+    pk_col = Identifier(pk_column)
+
+    # Build safe column list: col1, col2, col3
+    insert_cols = SQL(", ").join(columns)
+
+    # Build safe UPDATE clause: col1 = EXCLUDED.col1, col2 = EXCLUDED.col2
+    update_parts = SQL(", ").join([
+        SQL("{} = EXCLUDED.{}").format(col, col)
+        for col in columns
+        if col != pk_col
+    ])
+
+    # Build safe query with proper identifier quoting
+    query = SQL("INSERT INTO {} ({}) VALUES %s ON CONFLICT ({}) DO UPDATE SET {}").format(
+        Identifier(table_name),
+        insert_cols,
+        pk_col,
+        update_parts
     )
+
     execute_values(cursor, query, [tuple(row) for row in df.itertuples(index=False)], page_size=500)
     logger.info(f"Upserted {len(df)} rows into {table_name}")
+
+
+def load_raw_coins(raw_data, run_at):
+    """Load raw coin data to raw_coins table for dbt transformation."""
+    if not raw_data:
+        logger.warning("No raw data to load")
+        return
+
+    conn = _get_pg_connection()
+    try:
+        with conn.cursor() as cursor:
+            # Prepare raw data for insertion
+            rows = []
+            for coin in raw_data:
+                rows.append((
+                    coin.get('id'),
+                    coin.get('symbol'),
+                    coin.get('name'),
+                    coin.get('current_price'),
+                    coin.get('market_cap'),
+                    coin.get('total_volume'),
+                    coin.get('high_24h'),
+                    coin.get('low_24h'),
+                    coin.get('price_change_percentage_24h'),
+                    coin.get('last_updated'),
+                    run_at  # loaded_at timestamp
+                ))
+            
+            # Insert raw data
+            insert_query = """
+                INSERT INTO raw_coins (
+                    id, symbol, name, current_price, market_cap, total_volume,
+                    high_24h, low_24h, price_change_percentage_24h, last_updated, loaded_at
+                ) VALUES %s
+                ON CONFLICT (id) DO UPDATE SET
+                    symbol = EXCLUDED.symbol,
+                    name = EXCLUDED.name,
+                    current_price = EXCLUDED.current_price,
+                    market_cap = EXCLUDED.market_cap,
+                    total_volume = EXCLUDED.total_volume,
+                    high_24h = EXCLUDED.high_24h,
+                    low_24h = EXCLUDED.low_24h,
+                    price_change_percentage_24h = EXCLUDED.price_change_percentage_24h,
+                    last_updated = EXCLUDED.last_updated,
+                    loaded_at = EXCLUDED.loaded_at
+            """
+            execute_values(cursor, insert_query, rows, page_size=500)
+            logger.info(f"Loaded {len(rows)} raw coins to raw_coins table")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.exception("Failed to load raw coins")
+        raise
+    finally:
+        conn.close()
 
 
 def load_to_postgres(dim_category, dim_coin, dim_date, dim_currency, fact_crypto_prices):
