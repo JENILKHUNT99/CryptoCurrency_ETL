@@ -53,7 +53,6 @@ services:
       LOG_LEVEL: INFO
       PYTHONPATH: /opt/crypto_etl
       RAW_DATA_DIR: /opt/crypto_etl/data/raw
-      CURATED_DATA_DIR: /opt/crypto_etl/data/curated
       # dbt
       DBT_PROFILES_DIR: /opt/crypto_etl/dbt
       DBT_TARGET_PATH: /tmp/dbt_target

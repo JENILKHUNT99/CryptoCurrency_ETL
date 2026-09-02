@@ -7,11 +7,10 @@ import main
 from tests.fixtures import SAMPLE_COINS_VALID
 
 
-def test_run_pipeline_accepts_iso_timestamp_and_writes_both_snapshots(tmp_path, monkeypatch):
+def test_run_pipeline_accepts_iso_timestamp_and_writes_raw_snapshot(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "extract_crypto_data", MagicMock(return_value=SAMPLE_COINS_VALID))
     monkeypatch.setattr(main, "MIN_VALID_RECORDS", 1)
     monkeypatch.setattr("etl.load.RAW_DATA_DIR", str(tmp_path / "raw"))
-    monkeypatch.setattr("etl.load.CURATED_DATA_DIR", str(tmp_path / "curated"))
 
     run_id = main.run_pipeline(
         "2025-07-20T15:30:00+05:30",
@@ -21,7 +20,6 @@ def test_run_pipeline_accepts_iso_timestamp_and_writes_both_snapshots(tmp_path, 
 
     expected_partition = Path("run_date=2025-07-20/run_hour=10")
     assert (tmp_path / "raw" / expected_partition / f"{run_id}.json").exists()
-    assert (tmp_path / "curated" / expected_partition / f"{run_id}.csv").exists()
 
 
 def test_run_pipeline_preserves_raw_response_before_validation(monkeypatch):
@@ -30,31 +28,26 @@ def test_run_pipeline_preserves_raw_response_before_validation(monkeypatch):
     monkeypatch.setattr(main, "extract_crypto_data", MagicMock(return_value=SAMPLE_COINS_VALID))
     monkeypatch.setattr(main, "save_raw_snapshot", lambda *args: events.append("raw"))
     monkeypatch.setattr(main, "validate_data", lambda data: events.append("validate") or [])
-    monkeypatch.setattr(main, "save_curated_snapshot", MagicMock())
 
     with pytest.raises(RuntimeError, match="Only 0 valid records"):
         main.run_pipeline(upload_to_s3=False, load_postgres=False)
 
     assert events == ["raw", "validate"]
-    main.save_curated_snapshot.assert_not_called()
 
 
-def test_run_pipeline_loads_raw_coins_for_dbt_before_transforming(monkeypatch):
+def test_run_pipeline_loads_raw_coins_after_validation_passes(monkeypatch):
     events = []
     monkeypatch.setattr(main, "MIN_VALID_RECORDS", 1)
     monkeypatch.setattr(main, "apply_migrations", MagicMock())
     monkeypatch.setattr(main, "record_pipeline_run", MagicMock())
     monkeypatch.setattr(main, "extract_crypto_data", MagicMock(return_value=SAMPLE_COINS_VALID))
     monkeypatch.setattr(main, "save_raw_snapshot", lambda *args: events.append("raw"))
-    monkeypatch.setattr(main, "load_raw_coins", lambda *args: events.append("raw_coins"))
     monkeypatch.setattr(main, "validate_data", lambda data: events.append("validate") or data)
-    monkeypatch.setattr(main, "transform_data", MagicMock(return_value=tuple(range(5))))
-    monkeypatch.setattr(main, "save_curated_snapshot", MagicMock())
-    monkeypatch.setattr(main, "load_to_postgres", MagicMock())
+    monkeypatch.setattr(main, "load_raw_coins", lambda *args: events.append("raw_coins"))
 
     main.run_pipeline(upload_to_s3=False, load_postgres=True)
 
-    assert events == ["raw", "raw_coins", "validate"]
+    assert events == ["raw", "validate", "raw_coins"]
 
 
 def test_parse_utc_timestamp_rejects_naive_value():

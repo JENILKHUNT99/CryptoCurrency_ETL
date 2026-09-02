@@ -29,4 +29,3 @@ if not CURRENCY or len(CURRENCY) > 10 or not CURRENCY.replace("-", "").isalnum()
     raise ValueError("CURRENCY must be a non-empty alphanumeric code of at most 10 characters")
 
 RAW_DATA_DIR = os.getenv("RAW_DATA_DIR", "data/raw")
-CURATED_DATA_DIR = os.getenv("CURATED_DATA_DIR", "data/curated")
