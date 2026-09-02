@@ -37,7 +37,6 @@ fact AS (
         TO_CHAR(s.observed_at, 'YYYYMMDD"T"HH24MISSUS"Z"') AS price_id,
         
         s.coin_id,
-        c.category_id,
         d.date_id AS api_updated_date_id,
         TO_CHAR(DATE_TRUNC('hour', s.ingested_at), 'YYYYMMDDHH')::INTEGER AS etl_run_date_id,
         '{{ env_var("CURRENCY", "usd") }}' AS currency_id,
@@ -53,7 +52,7 @@ fact AS (
         s.total_volume AS volume,
         s.high_24h,
         s.low_24h,
-        s.price_change_percentage_24h
+        s.price_change_percentage_24h AS price_change_percent
         
     FROM staging s
     JOIN coins c ON s.coin_id = c.coin_id

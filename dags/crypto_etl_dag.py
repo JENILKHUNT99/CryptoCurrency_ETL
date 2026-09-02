@@ -1,9 +1,10 @@
 """
 Crypto ETL Pipeline DAG
 
-Python ETL (extract → validate → transform → load) feeds the PostgreSQL star
-schema and the raw_coins source table. dbt then rebuilds the analytical models
-from raw_coins and asserts its data-quality tests.
+This is an ELT pipeline. Python owns ingestion (extract → validate → load raw)
+and dbt owns transformation. The Python task loads the raw API records into the
+raw_coins table; dbt then builds the PostgreSQL star schema from raw_coins and
+asserts its data-quality tests.
 
     apply_migrations → run_python_etl → dbt_run → dbt_test
 """

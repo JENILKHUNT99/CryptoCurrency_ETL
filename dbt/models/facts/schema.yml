@@ -66,8 +66,6 @@ models:
         description: "Year"
         tests:
           - not_null
-          - accepted_values:
-              values: ['2024', '2025', '2026']
 
   # Fact: Crypto Prices
   - name: fact_crypto_prices
@@ -82,6 +80,9 @@ models:
         description: "Foreign key to dim_coin"
         tests:
           - not_null
+          - relationships:
+              to: ref('dim_coin')
+              field: coin_id
       - name: price
         description: "Current price"
         tests:

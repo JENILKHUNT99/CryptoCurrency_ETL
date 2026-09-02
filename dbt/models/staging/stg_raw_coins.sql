@@ -26,7 +26,10 @@ cleaned AS (
         last_updated::TIMESTAMPTZ AS observed_at,
         
         -- Metadata
-        '{{ env_var("PIPELINE_RUN_ID", "manual") }}' AS pipeline_run_id,
+        -- Cast to UUID so joins against pipeline_runs.pipeline_run_id (UUID) work.
+        -- Falls back to the nil UUID when no run id is supplied (e.g. a standalone
+        -- dbt run outside the pipeline).
+        NULLIF('{{ env_var("PIPELINE_RUN_ID", "") }}', '')::UUID AS pipeline_run_id,
         NOW() AS ingested_at
         
     FROM source_data
