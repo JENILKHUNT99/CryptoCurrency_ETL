@@ -1,47 +1,66 @@
-# Crypto Market ETL
+# Crypto Market ELT
 
-A containerized batch ETL pipeline that extracts cryptocurrency market data from the CoinGecko API, validates and transforms the records, stores raw and curated snapshots, and loads a PostgreSQL star schema. Snapshot files can optionally be uploaded to Amazon S3.
+A containerized **ELT** pipeline for cryptocurrency market data. Python handles
+ingestion — it extracts from the CoinGecko API, validates data quality, and loads
+the raw records into PostgreSQL — while **dbt** transforms those raw records into a
+star schema with SQL, and **Apache Airflow** orchestrates the whole thing on an
+hourly schedule. The raw API response is also preserved as an immutable JSON
+snapshot, optionally uploaded to Amazon S3.
+
+> **ELT, not ETL:** the raw data is loaded *before* it is transformed. Python never
+> reshapes the data; it only extracts, gates on quality, and loads. All
+> transformation lives in dbt (versioned SQL models with tests and lineage), which
+> means the raw layer is always available to re-transform without re-hitting the API.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    API[CoinGecko API] --> EXTRACT[Extract]
-    EXTRACT --> RAW[Raw JSON]
-    RAW --> VALIDATE[Validate]
-    VALIDATE --> TRANSFORM[Transform]
-    TRANSFORM --> CURATED[Curated CSV]
-    TRANSFORM --> DB[(PostgreSQL)]
-    EXTRACT --> RAWCOINS[(raw_coins)]
-    RAWCOINS --> DBT[dbt models]
-    DBT --> DB
+    API[CoinGecko API] --> EXTRACT[Extract - Python]
+    EXTRACT --> RAW[Raw JSON snapshot]
+    EXTRACT --> VALIDATE[Validate - Python]
+    VALIDATE --> RAWCOINS[(raw_coins)]
+    RAWCOINS --> DBT[Transform - dbt models]
+    DBT --> STAR[(Star schema in PostgreSQL)]
     RAW -. optional .-> S3[(Amazon S3)]
-    CURATED -. optional .-> S3
-    DB --> AUDIT[Pipeline Audit]
+    VALIDATE --> AUDIT[(pipeline_runs audit)]
 ```
 
-Apache Airflow schedules the pipeline hourly and runs `dbt run` and `dbt test`
-after the Python ETL completes.
+Apache Airflow runs the pipeline hourly as a four-task DAG:
+
+```text
+apply_migrations → run_python_etl → dbt_run → dbt_test
+```
 
 ## Pipeline flow
 
+**Ingestion (Python, `main.py`):**
+
 1. `main.py` creates a unique pipeline run ID and UTC start time.
-2. Pending SQL migrations are applied when PostgreSQL loading is enabled.
+2. Pending SQL migrations are applied (creating `pipeline_runs` and `raw_coins`).
 3. A `running` record is created in the pipeline audit table.
 4. Market data is requested from CoinGecko.
-5. The original API response is saved as a raw JSON snapshot.
-6. The raw records are loaded into `raw_coins`, the source table for dbt.
-7. Invalid records are rejected using the configured data-quality rules.
-8. Valid records are transformed into dimension and fact DataFrames.
-9. The transformed fact data is saved as a curated CSV snapshot.
-10. Dimensions and facts are upserted into PostgreSQL in one transaction.
-11. The audit record is updated to `succeeded` or `failed`.
+5. The original API response is saved as an immutable raw JSON snapshot.
+6. Records are validated; the run fails if fewer than `MIN_VALID_RECORDS` pass.
+7. The raw records are loaded into `raw_coins`, the source table dbt reads.
+8. The audit record is updated to `succeeded` or `failed`.
 
-Under Airflow the same `run_pipeline()` function runs as one task, followed by
-`dbt run` and `dbt test`. See [`AIRFLOW.md`](AIRFLOW.md) and
-[`dbt/README.md`](dbt/README.md).
+**Transformation (dbt):**
+
+9. `stg_raw_coins` cleans and type-casts the raw rows.
+10. `dim_category`, `dim_coin`, `dim_currency`, and `dim_date` build the dimensions.
+11. `fact_crypto_prices` builds the fact table from staging joined to the dimensions.
+12. `dbt test` asserts uniqueness, not-null, relationship, and combination tests.
+
+Python owns steps 1–8; dbt owns 9–12. The two meet at the `raw_coins` table. Under
+Airflow the ingestion runs as `run_python_etl` and dbt runs as `dbt_run` / `dbt_test`.
+See [`AIRFLOW.md`](AIRFLOW.md) and [`dbt/README.md`](dbt/README.md).
 
 ## Data model
+
+dbt builds the star schema into the `public` schema. `pipeline_runs` is written by
+Python and holds the audit trail; the fact table carries the `pipeline_run_id` of
+the ingestion run that produced its rows.
 
 ```mermaid
 flowchart LR
@@ -49,36 +68,35 @@ flowchart LR
     COIN --> FACT[fact_crypto_prices]
     CURRENCY[dim_currency] --> FACT
     DATE[dim_date] --> FACT
-    RUNS[pipeline_runs] --> FACT
 ```
 
-| Table | Purpose |
-| --- | --- |
-| `dim_category` | Cryptocurrency analysis categories |
-| `dim_coin` | Coin ID, name, symbol, and category |
-| `dim_currency` | Configured reporting currency |
-| `dim_date` | Hourly UTC calendar values |
-| `fact_crypto_prices` | Price, market cap, volume, 24-hour values, and timestamps |
-| `pipeline_runs` | Run status, counts, timestamps, and errors |
+| Table | Owner | Purpose |
+| --- | --- | --- |
+| `raw_coins` | Python | Raw API records; the source table dbt reads |
+| `dim_category` | dbt | Cryptocurrency analysis categories |
+| `dim_coin` | dbt | Coin ID, name, symbol, and category |
+| `dim_currency` | dbt | Configured reporting currency |
+| `dim_date` | dbt | Hourly UTC calendar values |
+| `fact_crypto_prices` | dbt | Price, market cap, volume, 24-hour values, and timestamps |
+| `pipeline_runs` | Python | Run status, counts, timestamps, and errors |
 
-The fact-table grain is one coin, in one reporting currency, at one exact source observation timestamp. The deterministic fact key is:
+The fact-table grain is one coin, in one reporting currency, at one exact source observation timestamp. The deterministic fact key, built by the dbt fact model, is:
 
 ```text
 <coin-id>_<currency-code>_<observed-at-utc>
 ```
 
-For example, `bitcoin_usd_20250720T100000000000Z`. Reprocessing the same observation generates the same key, so PostgreSQL updates the existing row instead of inserting a duplicate.
+For example, `bitcoin_usd_20250720T100000000000Z`. The key is deterministic, so the same observation always maps to the same `price_id` — reprocessing produces identical keys rather than duplicates.
 
 ## Data storage
 
-Snapshots are partitioned by the UTC pipeline start date and hour:
+The raw API response is saved as an immutable snapshot, partitioned by the UTC pipeline start date and hour:
 
 ```text
 data/raw/run_date=YYYY-MM-DD/run_hour=HH/<pipeline-run-id>.json
-data/curated/run_date=YYYY-MM-DD/run_hour=HH/<pipeline-run-id>.csv
 ```
 
-When S3 is enabled, the same partition structure is stored under `raw/` and `curated/` object prefixes.
+When S3 is enabled, the same partition structure is stored under the `raw/` object prefix. Transformed data is not snapshotted to files — it lives in the PostgreSQL star schema that dbt builds, and the raw snapshot plus `raw_coins` are enough to rebuild it at any time.
 
 ## Data-quality rules
 
@@ -93,7 +111,7 @@ Crypto_ETL/
 ├── dags/                       # Airflow DAG definition
 ├── dbt/                        # dbt transformation layer and tests
 ├── docs/                       # Example analytical SQL
-├── etl/                        # Extract, validate, transform, load, and migrations
+├── etl/                        # Extract, validate, load (raw), and migrations
 ├── init/                       # PostgreSQL initialization
 ├── migrations/                 # Versioned warehouse migrations
 ├── tests/                      # Automated tests and fixtures
