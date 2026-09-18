@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+from datetime import datetime
+from typing import List, Dict, Any, Union
 
 import boto3  # type: ignore
 import psycopg2  # type: ignore
@@ -15,7 +17,7 @@ def _get_pg_connection():
     return psycopg2.connect(**POSTGRES_CONFIG)
 
 
-def load_raw_coins(raw_data, run_at):
+def load_raw_coins(raw_data: List[Dict[str, Any]], run_at: datetime) -> None:
     """Load raw coin data to raw_coins table for dbt transformation."""
     if not raw_data:
         logger.warning("No raw data to load")

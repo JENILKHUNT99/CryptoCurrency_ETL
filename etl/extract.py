@@ -1,4 +1,5 @@
 import time
+from typing import List, Dict, Any
 
 import requests  # type: ignore
 from etl.logger import get_logger
@@ -11,7 +12,7 @@ TIMEOUT = 30
 MAX_RETRIES = 3
 RETRY_BACKOFF = 5
 
-def extract_crypto_data():
+def extract_crypto_data() -> List[Dict[str, Any]]:
     logger.info("Extracting crypto data...")
     params = {
         'vs_currency': CURRENCY,

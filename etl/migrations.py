@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import NoReturn
 
 import psycopg2  # type: ignore
 
@@ -9,7 +10,7 @@ logger = get_logger(__name__)
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
 
-def apply_migrations():
+def apply_migrations() -> None:
     """Apply each versioned SQL migration once, within one transaction."""
     conn = psycopg2.connect(**POSTGRES_CONFIG)
     try:

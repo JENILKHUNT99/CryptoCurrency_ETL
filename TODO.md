@@ -31,9 +31,9 @@ dropped silently by the API (renamed slugs, delisted coins, or temporary gaps).
 - [ ] Decide on a policy: warn-and-continue (current) vs fail if too many IDs go missing
 
 ### Code Quality
-- [ ] Add type hints to all functions
+- [x] Add type hints to all functions
 - [ ] Add docstrings to all modules  
-- [ ] Fix inconsistent spacing in `REQUIRED_FIELDS` list
+- [x] Fix inconsistent spacing in `REQUIRED_FIELDS` list
 
 ### Design Improvements
 - [ ] Log warning when coins get category_id=99 ("Other")

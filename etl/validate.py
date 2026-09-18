@@ -1,5 +1,6 @@
 import math
 from datetime import datetime
+from typing import List, Dict, Any, Union
 
 from etl.logger import get_logger
 
@@ -8,7 +9,7 @@ logger = get_logger(__name__)
 REQUIRED_FIELDS = [
     'id', 'symbol', 'name',
     'current_price', 'market_cap', 'total_volume',
-    'high_24h', 'low_24h', 'price_change_percentage_24h','last_updated'
+    'high_24h', 'low_24h', 'price_change_percentage_24h', 'last_updated'
 ]
 
 NUMERIC_FIELDS = [
@@ -16,7 +17,7 @@ NUMERIC_FIELDS = [
     'high_24h', 'low_24h', 'price_change_percentage_24h'
 ]
 
-def validate_data(data):
+def validate_data(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     logger.info("Validating data...")
 
     if not data:

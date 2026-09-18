@@ -2,6 +2,7 @@ import argparse
 import sys
 import uuid
 from datetime import datetime, timezone
+from typing import Optional, Union, List, Dict, Any
 
 from config.config import MIN_VALID_RECORDS, S3_ENABLED
 from etl.extract import extract_crypto_data
@@ -17,7 +18,7 @@ from etl.validate import validate_data
 logger = get_logger(__name__)
 
 
-def parse_utc_timestamp(value):
+def parse_utc_timestamp(value: Union[str, datetime]) -> datetime:
     """Parse a timezone-aware ISO-8601 value and normalize it to UTC."""
     if isinstance(value, datetime):
         parsed = value
@@ -35,7 +36,7 @@ def parse_utc_timestamp(value):
     return parsed.astimezone(timezone.utc)
 
 
-def run_pipeline(run_at=None, upload_to_s3=S3_ENABLED, load_postgres=True):
+def run_pipeline(run_at: Optional[Union[str, datetime]] = None, upload_to_s3: bool = S3_ENABLED, load_postgres: bool = True) -> str:
     """Run the extract-load half of the pipeline.
 
     Python owns ingestion: it extracts from the API, preserves the raw response,
@@ -77,7 +78,7 @@ def run_pipeline(run_at=None, upload_to_s3=S3_ENABLED, load_postgres=True):
         raise
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the crypto market ETL ingestion.")
     parser.add_argument(
         "--run-at",
